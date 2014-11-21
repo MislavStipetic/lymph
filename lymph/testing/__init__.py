@@ -13,6 +13,9 @@ from lymph.events.local import LocalEventSystem
 from lymph.client import Client
 from lymph.services.coordinator import Coordinator
 
+from lymph import monkey
+from werkzeug.test import Client
+from werkzeug.wrappers import BaseResponse
 
 class MockServiceNetwork(object):
     def __init__(self):
@@ -126,9 +129,6 @@ class LymphServiceTestCase(unittest.TestCase):
         self.network.join()
 
 
-from lymph import monkey
-from werkzeug.test import Client
-from werkzeug.wrappers import BaseResponse
 class APITestCase(unittest.TestCase):
 
     interface_name = None
@@ -146,7 +146,6 @@ class APITestCase(unittest.TestCase):
         app = webinterface_object.get_wsgi_application()
         monkey.patch()
         self.client = Client(app, BaseResponse)
-        print 'setup'
 
     def tearDown(self):
         self.msc.stop()
