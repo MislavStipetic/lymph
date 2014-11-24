@@ -24,13 +24,13 @@ class MockServiceNetwork(object):
         self.discovery_hub = StaticServiceRegistryHub()
         self.events = LocalEventSystem()
 
-    def add_service(self, cls, **kwargs):
+    def add_service(self, cls, interface_name=None, **kwargs):
         kwargs.setdefault('ip', '300.0.0.1')
         kwargs.setdefault('port', self.next_port)
         self.next_port += 1
         registry = self.discovery_hub.create_registry()
         container = MockServiceContainer(registry=registry, events=self.events, **kwargs)
-        container.install(cls)
+        container.install(cls, interface_name=interface_name)
         self.service_containers[container.endpoint] = container
         container._mock_network = self
         return container
@@ -90,13 +90,13 @@ class LymphIntegrationTestCase(KazooTestHarness):
         container, interface = self.create_container(**kwargs)
         return Client(container)
 
-    def create_container(self, interface_cls=None, **kwargs):
+    def create_container(self, interface_cls=None, interface_name=None, **kwargs):
         kwargs.setdefault('events', self.events)
         kwargs.setdefault('registry', self.registry)
         container = ServiceContainer(**kwargs)
         interface = None
         if interface_cls:
-            interface = container.install(interface_cls)
+            interface = container.install(interface_cls, interface_name=interface_name)
         container.start()
         return container, interface
 
@@ -107,20 +107,30 @@ class ClientInterface(Interface):
 
 class LymphServiceTestCase(unittest.TestCase):
     client_class = ClientInterface
+    client_name = 'client'
     client_config = {}
     service_class = ClientInterface
+    service_name = 'client'
     service_config = {}
 
     def setUp(self):
         self.network = MockServiceNetwork()
         self.coordinator = self.network.add_service(Coordinator)
-        self.service_container = self.network.add_service(self.service_class)
+        self.service_container = self.network.add_service(
+            self.service_class,
+            interface_name=self.service_name
+        )
         self.service = self.service_container.installed_interfaces[
-            self.service_class.service_type]
+            self.service_name
+        ]
         self.service.apply_config(self.service_config)
-        self.client_container = self.network.add_service(self.client_class)
+        self.client_container = self.network.add_service(
+            self.client_class,
+            interface_name=self.client_name
+        )
         self.client = self.client_container.installed_interfaces[
-            self.client_class.service_type]
+            self.client_name
+        ]
         self.client.apply_config(self.client_config)
         self.network.start()
 

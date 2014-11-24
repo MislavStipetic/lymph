@@ -2,15 +2,17 @@ import collections
 import errno
 import json
 import gc
-import gevent
-import gevent.queue
-import gevent.pool
 import hashlib
 import logging
 import random
+import time
 import os
-import six
 import sys
+
+import gevent
+import gevent.queue
+import gevent.pool
+import six
 import zmq.green as zmq
 
 from lymph.exceptions import RegistrationFailure, SocketNotCreated, NotConnected
@@ -68,7 +70,7 @@ class ServiceContainer(object):
 
         self.monitor = Monitor(self)
 
-        self.install(DefaultInterface)
+        self.install(DefaultInterface, interface_name='lymph')
         registry.install(self)
         if events:
             events.install(self)
@@ -86,9 +88,10 @@ class ServiceContainer(object):
                 kwargs[key] = value
         return cls(**kwargs)
 
-    def install(self, cls, **kwargs):
+    def install(self, cls, interface_name=None, **kwargs):
         obj = cls(self, **kwargs)
-        self.installed_interfaces[obj.service_type] = obj
+        obj.name = interface_name
+        self.installed_interfaces[obj.name] = obj
         return obj
 
     def install_plugin(self, cls, **kwargs):
@@ -201,13 +204,13 @@ class ServiceContainer(object):
             service.configure({})
 
         if register:
-            for service_type, service in six.iteritems(self.installed_interfaces):
+            for interface_name, service in six.iteritems(self.installed_interfaces):
                 if not service.register_with_coordinator:
                     continue
                 try:
-                    self.service_registry.register(service_type)
+                    self.service_registry.register(interface_name)
                 except RegistrationFailure:
-                    logger.error("registration failed %s, %s", service_type, service)
+                    logger.error("registration failed %s, %s", interface_name, service)
                     self.stop()
 
     def stop(self):
@@ -304,6 +307,7 @@ class ServiceContainer(object):
         return reply_msg
 
     def dispatch_request(self, msg):
+        start = time.time()
         self.request_counts[msg.subject] += 1
         channel = ReplyChannel(msg, self)
         service_name, func_name = msg.subject.rsplit('.', 1)
@@ -315,7 +319,7 @@ class ServiceContainer(object):
         try:
             service.handle_request(func_name, channel)
         except Exception:
-            logger.exception('')
+            logger.exception('Request error:')
             exc_info = sys.exc_info()
             try:
                 self.error_hook(exc_info)
@@ -327,6 +331,10 @@ class ServiceContainer(object):
                 channel.nack(True)
             except:
                 logger.exception('failed to send automatic NACK')
+        finally:
+            elapsed = (time.time() - start) * (10 ** 3)
+            # TODO(Mouad): Add request status i.e. ACK, ERROR, NACK .. .
+            logger.info('%s -- %s %.3fms', msg.source, msg.subject, elapsed)
 
     def recv_message(self, msg):
         trace.set_id(msg.headers.get('trace_id'))
